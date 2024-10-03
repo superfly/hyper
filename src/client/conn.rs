@@ -243,11 +243,10 @@ pub struct Parts<T> {
 
 // ========== internal client api
 
-// A `SendRequest` that can be cloned to send HTTP2 requests.
-// private for now, probably not a great idea of a type...
+/// A `SendRequest` that can be cloned to send HTTP2 requests.
 #[must_use = "futures do nothing unless polled"]
 #[cfg(feature = "http2")]
-pub(super) struct Http2SendRequest<B> {
+pub struct Http2SendRequest<B> {
     dispatch: dispatch::UnboundedSender<Request<B>, Response<Body>>,
 }
 
@@ -279,8 +278,10 @@ impl<B> SendRequest<B> {
         self.dispatch.is_closed()
     }
 
+    /// Converts [SendRequest] to [Http2SendRequest]. The caller must ensure
+    /// that the corresponding connection is http/2.
     #[cfg(feature = "http2")]
-    pub(super) fn into_http2(self) -> Http2SendRequest<B> {
+    pub fn into_http2(self) -> Http2SendRequest<B> {
         Http2SendRequest {
             dispatch: self.dispatch.unbound(),
         }
@@ -416,6 +417,22 @@ impl<B> Http2SendRequest<B>
 where
     B: HttpBody + 'static,
 {
+    /// Sends a `Request` on the associated connection.
+    ///
+    /// Returns a future that if successful, yields the `Response`.
+    pub fn send_request(&mut self, req: Request<B>) -> ResponseFuture {
+        let inner = match self.dispatch.send(req) {
+            Ok(rx) => ResponseFutureState::Waiting(rx),
+            Err(_req) => {
+                debug!("connection was not ready");
+                let err = crate::Error::new_canceled().with("connection was not ready");
+                ResponseFutureState::Error(Some(err))
+            }
+        };
+
+        ResponseFuture { inner }
+    }
+
     pub(super) fn send_request_retryable(
         &mut self,
         req: Request<B>,

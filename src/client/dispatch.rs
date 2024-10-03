@@ -129,7 +129,7 @@ impl<T, U> UnboundedSender<T, U> {
             .map_err(|mut e| (e.0).0.take().expect("envelope not dropped").0)
     }
 
-    #[cfg(all(feature = "backports", feature = "http2"))]
+    #[cfg(feature = "http2")]
     pub(crate) fn send(&mut self, val: T) -> Result<Promise<U>, T> {
         let (tx, rx) = oneshot::channel();
         self.inner
